@@ -1,11 +1,8 @@
-# ============================================================
-# 修复机器人 (fix.ps1)
-# 功能：读取 GitHub Issue，用 Claude Code 修复代码，提交 PR
-# ============================================================
-
+<#
+  Fix Bot - Reads GitHub Issues and creates PRs with fixes
+#>
 $ErrorActionPreference = "Stop"
 
-# --- 配置 ---
 $PROJECT_DIR = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $LOG_DIR = Join-Path $PROJECT_DIR "_bots\logs"
 $TIMESTAMP = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
@@ -20,121 +17,92 @@ function Write-Log {
     Add-Content -Path $LOG_FILE -Value $entry
 }
 
-# --- 开始修复 ---
-Write-Log "===== 修复机器人启动 ====="
-Write-Log "项目目录: $PROJECT_DIR"
-
+Write-Log "===== Fix Bot Started ====="
 Set-Location $PROJECT_DIR
 
-# 确保在 main 分支上，拉取最新
 git checkout main 2>&1 | ForEach-Object { Write-Log $_ }
-git pull origin main 2>&1 | ForEach-Object { Write-Log $_ }
+git pull 2>&1 | ForEach-Object { Write-Log $_ }
 
-# 获取所有 bot-audit 标签的未关闭 Issue
+# Get open audit issues
 $issuesJson = gh issue list --label "bot-audit" --state open --json number,title,body --limit 3 2>&1
-$issues = $issuesJson | ConvertFrom-Json
+$issues = @()
+try { $issues = $issuesJson | ConvertFrom-Json } catch {}
 
 if ($issues.Count -eq 0) {
-    Write-Log "没有需要修复的 Issue"
-    Write-Log "===== 修复机器人结束 ====="
+    Write-Log "No issues to fix"
     exit 0
 }
 
-Write-Log "找到 $($issues.Count) 个待修复的 Issue"
-
-# 逐个修复（每次只修一个，降低冲突风险）
+# Fix one issue at a time
 $issue = $issues[0]
 $issueNum = $issue.number
 $issueTitle = $issue.title
 $issueBody = $issue.body
 
-Write-Log "正在处理 Issue #$issueNum : $issueTitle"
+Write-Log "Fixing Issue #$issueNum : $issueTitle"
 
-# 创建修复分支
 $branchName = "bot-fix/issue-$issueNum"
 
-# 检查远程分支是否已存在（说明之前已经在修了）
+# Skip if branch already exists
 $existingBranch = git branch -r --list "origin/$branchName" 2>&1
-if ($existingBranch) {
-    Write-Log "分支 $branchName 已存在，跳过这个 Issue"
-    Write-Log "===== 修复机器人结束 ====="
+if ($existingBranch -and $existingBranch.ToString().Trim() -ne "") {
+    Write-Log "Branch $branchName already exists, skipping"
     exit 0
 }
 
 git checkout -b $branchName 2>&1 | ForEach-Object { Write-Log $_ }
 
-# 用 Claude Code 修复问题
-Write-Log "调用 Claude Code 进行修复..."
+# Write prompt to temp file
+$promptFile = Join-Path $env:TEMP "fix_prompt.txt"
+$promptContent = @"
+You are a code fix bot. Fix the following issue in this project.
 
-$FIX_PROMPT = @"
-你是一个代码修复机器人。请根据以下 Issue 描述，修复代码中的问题。
+Issue #$issueNum
+Title: $issueTitle
 
-## Issue #$issueNum
-**标题**: $issueTitle
-
-**描述**:
+Description:
 $issueBody
 
-## 要求：
-1. 只修改必要的代码，不要做额外的重构
-2. 确保修改后代码能正常运行
-3. 如果需要，添加适当的注释说明你的修改
-4. 修改完成后，直接保存文件即可
+Rules:
+1. Only change what is necessary to fix this issue
+2. Make sure the code still works after your changes
+3. Add a brief comment explaining what you changed
+4. Save the files directly
 
-请直接修改相关文件。
+Fix the code now.
 "@
+$promptContent | Set-Content -Path $promptFile -Encoding UTF8
 
-# 使用 claude 的非交互模式修复代码
-# --print 只看输出，但我们需要它真正改文件，所以用管道
-$fixResult = claude --print $FIX_PROMPT 2>&1
-Write-Log "Claude 修复输出: $fixResult"
+Write-Log "Calling Claude Code to fix..."
+$fixResult = claude --print (Get-Content $promptFile -Raw) 2>&1
+$fixResultStr = $fixResult | Out-String
+Write-Log "Claude fix output length: $($fixResultStr.Length) chars"
 
-# 检查是否有文件变更
-$changes = git diff --name-only 2>&1
-$stagedChanges = git diff --cached --name-only 2>&1
-$allChanges = @($changes) + @($stagedChanges) | Where-Object { $_ -and $_ -ne "" }
+# Check for changes
+$changes = git diff --name-only 2>&1 | Out-String
+$stagedChanges = git diff --cached --name-only 2>&1 | Out-String
+$allChanges = ($changes + $stagedChanges).Trim()
 
-if ($allChanges.Count -eq 0) {
-    Write-Log "没有检测到文件变更，Claude 可能没有成功修改文件"
-    Write-Log "尝试回退到 main 分支..."
-    git checkout main 2>&1 | ForEach-Object { Write-Log $_ }
-    git branch -D $branchName 2>&1 | ForEach-Object { Write-Log $_ }
-    Write-Log "===== 修复机器人结束 ====="
+if ([string]::IsNullOrWhiteSpace($allChanges)) {
+    Write-Log "No file changes detected, rolling back"
+    git checkout main 2>&1 | Out-Null
+    git branch -D $branchName 2>&1 | Out-Null
     exit 0
 }
 
-Write-Log "检测到以下文件变更:"
-$allChanges | ForEach-Object { Write-Log "  - $_" }
+Write-Log "Changed files: $allChanges"
 
-# 提交变更
-git add -A 2>&1 | ForEach-Object { Write-Log $_ }
-git commit -m "fix: 修复 Issue #$issueNum - $issueTitle`n`n由修复机器人自动修复" 2>&1 | ForEach-Object { Write-Log $_ }
+git add -A 2>&1 | Out-Null
+git commit -m "fix: Issue #$issueNum - $issueTitle" 2>&1 | ForEach-Object { Write-Log $_ }
 
-# 推送分支
-Write-Log "推送分支到远程..."
+Write-Log "Pushing branch..."
 git push origin $branchName 2>&1 | ForEach-Object { Write-Log $_ }
 
-# 创建 PR
-$prBody = @"
-## 修复 Issue #$issueNum
+$prBody = "Fixes #$issueNum`n`nChanged files:`n$allChanges`n`n---`nCreated by fix bot at $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 
-**关联 Issue**: closes #$issueNum
+Write-Log "Creating PR..."
+gh pr create --title "fix: Issue #$issueNum - $issueTitle" --body $prBody --label "bot-fix" --base main --head $branchName 2>&1 | ForEach-Object { Write-Log $_ }
 
-### 修改的文件：
-$($allChanges | ForEach-Object { "- ``$_``" } | Out-String)
+git checkout main 2>&1 | Out-Null
 
-### 修改说明：
-$fixResult
-
----
-_此 PR 由修复机器人自动创建于 $(Get-Date -Format 'yyyy-MM-dd HH:mm')_
-_等待审查机器人 review_
-"@
-
-Write-Log "创建 Pull Request..."
-gh pr create --title "fix: 修复 Issue #$issueNum - $issueTitle" --body $prBody --label "bot-fix" --base main --head $branchName 2>&1 | ForEach-Object { Write-Log $_ }
-
-# 回到 main 分支
-git checkout main 2>&1 | ForEach-Object { Write-Log $_ }
-
-Write-Log "===== 修复机器人结束 ====="
+Write-Log "===== Fix Bot Finished ====="

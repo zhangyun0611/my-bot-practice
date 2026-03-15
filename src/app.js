@@ -38,7 +38,7 @@ function addTask(title, priority) {
     
     // 问题4: 没有验证输入
     var newTask = {
-        id: tasks.length + 1, // 问题5: 删除任务后 id 会重复
+        id: tasks.length === 0 ? 1 : Math.max(...tasks.map(t => t.id)) + 1, // 问题5: 删除任务后 id 会重复
         title: title,
         priority: priority,
         done: false,

@@ -1,0 +1,4 @@
+node_modules/
+_bots/logs/
+.env
+*.log

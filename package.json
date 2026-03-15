@@ -1,0 +1,11 @@
+{
+  "name": "task-manager-practice",
+  "version": "0.1.0",
+  "description": "简单的任务管理工具 — 机器人闭环练手项目",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "add": "node src/app.js add",
+    "list": "node src/app.js list"
+  }
+}

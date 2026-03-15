@@ -10,14 +10,26 @@ const API_KEY = 'sk-test-12345-fake-key'; // 问题1: 硬编码密钥
 
 // 读取任务
 function loadTasks() {
-    // 问题2: 没有错误处理
-    const data = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(data);
+    // Added try-catch to handle file read/parse errors (e.g., file missing or invalid JSON)
+    try {
+        const data = fs.readFileSync(DATA_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            return []; // File doesn't exist yet, return empty list
+        }
+        throw new Error(`Failed to load tasks: ${err.message}`);
+    }
 }
 
 // 保存任务
 function saveTasks(tasks) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(tasks));
+    // Added try-catch to handle file write errors (e.g., permissions, disk full)
+    try {
+        fs.writeFileSync(DATA_FILE, JSON.stringify(tasks));
+    } catch (err) {
+        throw new Error(`Failed to save tasks: ${err.message}`);
+    }
 }
 
 // 添加任务

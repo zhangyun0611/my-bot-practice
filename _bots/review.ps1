@@ -1,7 +1,7 @@
 <#
   Review Bot - Reviews PRs and merges or rejects them
 #>
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $PROJECT_DIR = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $LOG_DIR = Join-Path $PROJECT_DIR "_bots\logs"

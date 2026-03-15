@@ -1,7 +1,7 @@
 <#
   Fix Bot - Reads GitHub Issues and creates PRs with fixes
 #>
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $PROJECT_DIR = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $LOG_DIR = Join-Path $PROJECT_DIR "_bots\logs"

@@ -20,7 +20,7 @@ function Write-Log {
 Write-Log "===== Fix Bot Started ====="
 Set-Location $PROJECT_DIR
 
-git checkout main 2>&1 | ForEach-Object { Write-Log $_ }
+cmd /c "git checkout main 2>nul"
 git pull 2>&1 | ForEach-Object { Write-Log $_ }
 
 # Get open audit issues
@@ -50,7 +50,7 @@ if ($existingBranch -and $existingBranch.ToString().Trim() -ne "") {
     exit 0
 }
 
-git checkout -b $branchName 2>&1 | ForEach-Object { Write-Log $_ }
+cmd /c "git checkout -b $branchName 2>nul"
 
 # Write prompt to temp file
 $promptFile = Join-Path $env:TEMP "fix_prompt.txt"
@@ -106,3 +106,5 @@ gh pr create --title "fix: Issue #$issueNum - $issueTitle" --body $prBody --labe
 git checkout main 2>&1 | Out-Null
 
 Write-Log "===== Fix Bot Finished ====="
+
+
